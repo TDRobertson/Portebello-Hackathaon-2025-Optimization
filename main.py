@@ -1,3 +1,5 @@
+import csv
+import sys
 import random
 from typing import List, Tuple
 import matplotlib.pyplot as plt
@@ -29,56 +31,54 @@ class Space:
                            w: int, d: int, h: int,
                            max_attempts: int = 1000) -> bool:
         """
-        Try up to max_attempts to place a w×d×h box by:
-         1) choosing random (x,y)
-         2) letting it fall to z_floor = max(0, all supporting tops)
-         3) verifying no 3D overlap
-         4) verifying full support under its footprint (no overhang)
-         5) verifying it stays under the ceiling
+        Try up to max_attempts to place a w×d×h box:
+         1) pick random x,y
+         2) let it fall to z_floor = max(0, tops of overlapping footprints)
+         3) ensure z_floor+h <= height
+         4) ensure no 3D overlap
+         5) ensure full support under footprint (no overhang)
         """
         for _ in range(max_attempts):
             x = random.randint(0, self.width  - w)
             y = random.randint(0, self.depth  - d)
 
-            # find the highest top‐face among boxes whose XY‐footprint overlaps
+            # compute resting height
             z_floor = 0
             for e in self.boxes:
                 if not (x + w <= e.x or e.x + e.w <= x or
                         y + d <= e.y or e.y + e.d <= y):
                     z_floor = max(z_floor, e.z + e.h)
 
-            # check ceiling
+            # too tall?
             if z_floor + h > self.height:
                 continue
 
             candidate = Box(x, y, z_floor, w, d, h)
 
-            # 3D‐overlap check
+            # overlap?
             if any(candidate.overlaps(e) for e in self.boxes):
                 continue
 
-            # support check: if not on floor, every integer cell beneath
-            # must be covered by some box top at z_floor
+            # full support unless on floor
             if z_floor > 0:
-                supported = True
+                ok_support = True
                 for xi in range(x, x + w):
                     for yi in range(y, y + d):
-                        # is there a box e with top == z_floor covering (xi,yi)?
-                        found = False
-                        for e in self.boxes:
-                            if e.z + e.h == z_floor:
-                                if e.x <= xi < e.x + e.w and e.y <= yi < e.y + e.d:
-                                    found = True
-                                    break
-                        if not found:
-                            supported = False
+                        # must find a box whose top == z_floor covering (xi,yi)
+                        if not any(
+                            e.z + e.h == z_floor
+                            and e.x <= xi < e.x + e.w
+                            and e.y <= yi < e.y + e.d
+                            for e in self.boxes
+                        ):
+                            ok_support = False
                             break
-                    if not supported:
+                    if not ok_support:
                         break
-                if not supported:
+                if not ok_support:
                     continue
 
-            # OK—place it
+            # place it
             self.boxes.append(candidate)
             return True
 
@@ -105,30 +105,49 @@ def plot_space(space: Space) -> None:
     plt.show()
 
 
-def main() -> None:
-    # PARAMETERS
-    SPACE_W, SPACE_D, SPACE_H = 15, 15, 10
-    NUM_BOXES = 50
-    MIN_SIZE, MAX_SIZE = 1, 5
-    MAX_ATTEMPTS = 500
+def load_dims_from_csv(path: str) -> List[Tuple[int,int,int]]:
+    dims: List[Tuple[int,int,int]] = []
+    with open(path, newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        for lineno, row in enumerate(reader, start=1):
+            if not row or len(row) < 3:
+                print(f"Skipping line {lineno}: not enough values")
+                continue
+            try:
+                w, d, h = map(int, row[:3])
+                if w<=0 or d<=0 or h<=0:
+                    raise ValueError
+            except ValueError:
+                print(f"Skipping line {lineno}: invalid dims {row}")
+                continue
+            dims.append((w, d, h))
+    return dims
 
-    # 1) generate dims & sort large→small
-    dims: List[Tuple[int,int,int]] = [
-        (random.randint(MIN_SIZE, MAX_SIZE),
-         random.randint(MIN_SIZE, MAX_SIZE),
-         random.randint(MIN_SIZE, MAX_SIZE))
-        for _ in range(NUM_BOXES)
-    ]
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print("Usage: python place_boxes.py boxes.csv")
+        sys.exit(1)
+    csv_path = sys.argv[1]
+
+    # Load and sort
+    dims = load_dims_from_csv(csv_path)
+    if not dims:
+        print("No valid boxes found in the CSV.")
+        sys.exit(1)
     dims.sort(key=lambda t: t[0]*t[1]*t[2], reverse=True)
 
-    # 2) place them
-    space = Space(SPACE_W, SPACE_D, SPACE_H)
-    for i, (w,d,h) in enumerate(dims, 1):
-        if not space.place_with_gravity(w,d,h, MAX_ATTEMPTS):
-            print(f"✗ Failed to place #{i} size={w}×{d}×{h}")
-    print(f"✓ Placed {len(space.boxes)} / {NUM_BOXES} boxes")
+    # Space parameters
+    SPACE_W, SPACE_D, SPACE_H = 15, 15, 10
+    MAX_ATTEMPTS = 500
 
-    # 3) visualize
+    space = Space(SPACE_W, SPACE_D, SPACE_H)
+    for idx, (w,d,h) in enumerate(dims, start=1):
+        ok = space.place_with_gravity(w, d, h, MAX_ATTEMPTS)
+        if not ok:
+            print(f"✗ Could not place box #{idx} size={w}×{d}×{h}")
+
+    print(f"✓ Placed {len(space.boxes)} / {len(dims)} boxes total")
     plot_space(space)
 
 
