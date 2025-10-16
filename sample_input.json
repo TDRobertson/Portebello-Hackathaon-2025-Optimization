@@ -1,0 +1,17 @@
+{
+  "pallet": { "length": 5000, "width": 5000, "height_limit": 5000 },
+  "boxes": [
+    { "id": "SKU-A", "length": 400, "width": 300, "height": 200, "quantity": 8, "label_side": "+y" },
+    { "id": "SKU-B", "length": 500, "width": 400, "height": 300, "quantity": 4, "label_side": "+x" },
+    { "id": "SKU-C", "length": 300, "width": 300, "height": 150, "quantity": 12 },
+    { "id": "SKU-D", "length": 600, "width": 350, "height": 250, "quantity": 5, "label_side": "-y" },
+    { "id": "SKU-E", "length": 250, "width": 250, "height": 200, "quantity": 16, "label_side": "+z" },
+    { "id": "SKU-F", "length": 700, "width": 450, "height": 180, "quantity": 3, "label_side": "-x" },
+    { "id": "SKU-G", "length": 200, "width": 150, "height": 150, "quantity": 24 },
+    { "id": "SKU-H", "length": 500, "width": 500, "height": 400, "quantity": 2, "label_side": "+y" },
+    { "id": "SKU-I", "length": 450, "width": 300, "height": 220, "quantity": 6 },
+    { "id": "SKU-J", "length": 350, "width": 280, "height": 160, "quantity": 10, "label_side": "-z" }
+  ]
+}
+
+
