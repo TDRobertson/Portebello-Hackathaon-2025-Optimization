@@ -1,5 +1,5 @@
 {
-  "pallet": { "length": 5000, "width": 5000, "height_limit": 5000 },
+  "pallet": { "length": 1000, "width": 1000, "height_limit": 1000 },
   "boxes": [
     { "id": "SKU-A", "length": 400, "width": 300, "height": 200, "quantity": 8, "label_side": "+y" },
     { "id": "SKU-B", "length": 500, "width": 400, "height": 300, "quantity": 4, "label_side": "+x" },

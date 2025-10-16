@@ -1,5 +1,5 @@
 Total boxes: 90
-Placed boxes: 50
-Unplaced boxes: 40
-Used height: 4950.00
-Utilization (by volume): 29.65%
+Placed boxes: 23
+Unplaced boxes: 67
+Used height: 980.00
+Utilization (by volume): 71.29%

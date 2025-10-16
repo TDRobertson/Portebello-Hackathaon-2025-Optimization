@@ -110,6 +110,22 @@ def _support_coverage(placements: List[Placement], p: Placement, eps: float = 1e
     return area / target_area if target_area > eps else 0.0
 
 
+def _has_gap_below(placements: List[Placement], p: Placement, eps: float = 1e-6) -> bool:
+    """Check if there's empty space below this placement"""
+    if p.z <= eps:  # On the ground
+        return False
+    
+    # Check if there are any boxes directly below this one
+    for q in placements:
+        if q.z + q.height <= p.z + eps:  # q is at or below p's bottom
+            # Check if q's top face overlaps with p's bottom face
+            if (q.x < p.x + p.length and q.x + q.length > p.x and 
+                q.y < p.y + p.width and q.y + q.width > p.y and
+                abs(q.z + q.height - p.z) < eps):
+                return False  # Found support directly below
+    return True  # No support found, there's a gap
+
+
 def pack(spec: InputSpec) -> Result:
     pallet = spec.pallet
     candidates = _sort_for_stability(_boxes_expanded(spec.boxes))
@@ -117,98 +133,103 @@ def pack(spec: InputSpec) -> Result:
     placements: List[Placement] = []
     unplaced: List[Tuple[str, int]] = []
 
-    # Layered shelf heuristic
-    current_z = 0.0
-    used_height = 0.0
-    layer_height = 0.0
-
-    # Within a layer, maintain shelves along y; along each shelf, fill x.
-    shelf_y = 0.0
-    shelf_height = 0.0
-    cursor_x = 0.0
-
     for box, idx in candidates:
         placed = False
-        # Try existing layer and shelves; if not, create new shelf or new layer.
-        for attempt in range(2):  # 0: try new shelves in same layer; 1: open new layer
-            if attempt == 1:
-                # open a new layer on top of current_z
-                current_z += max(layer_height, shelf_height)
-                if current_z >= pallet.height_limit - 1e-9:
-                    break
-                used_height = max(used_height, current_z)
-                # reset shelves
-                shelf_y = 0.0
-                shelf_height = 0.0
-                cursor_x = 0.0
-                layer_height = 0.0
-
-            # Try orientations (prefer ones increasing footprint stability)
+        best_placement = None
+        best_score = float('inf')
+        
+        # Try all possible placement positions and orientations
+        # Get all possible z-levels (base + tops of existing boxes)
+        z_levels = [0.0] + [p.z + p.height for p in placements]
+        z_levels = sorted(set(z_levels))
+        
+        # Try each z-level from bottom to top
+        for z_level in z_levels:
+            if z_level >= pallet.height_limit - 1e-9:
+                continue
+                
+            # Try all orientations
             for L, W, H, tag in box.orientations():
-                # If label wants +z/-z, respect orientation height mapping minimally by not rotating that face away
-                if box.label_side in {"+z", "-z"} and H not in {box.height}:
-                    pass  # still allow; visibility is managed by position
-
-                # Try to place within current shelf
-                def try_place_at(x0: float, y0: float, z0: float) -> bool:
-                    nonlocal shelf_height, layer_height, cursor_x
-                    p = Placement(
-                        box_id=box.id,
-                        index=idx,
-                        x=x0,
-                        y=y0,
-                        z=z0,
-                        length=L,
-                        width=W,
-                        height=H,
-                        orientation=tag,
-                        label_side=box.label_side,
-                    )
-                    if not _fits_within(pallet.length, pallet.width, pallet.height_limit, p):
-                        return False
-                    # overlap check
-                    for q in placements:
-                        if _does_overlap(p, q):
-                            return False
-                    # support check for upper layers: require full support coverage
-                    if z0 > 0.0:
-                        coverage = _support_coverage(placements, p)
-                        if coverage < 0.999:  # effectively 100%
-                            return False
-                    # label exposure heuristic: prefer perimeter alignment; if not possible, allow but deprioritize
-                    if not _can_orient_label_on_perimeter(pallet.length, pallet.width, p):
-                        return False
-
-                    placements.append(p)
-                    cursor_x = x0 + L
-                    shelf_height = max(shelf_height, H)
-                    layer_height = max(layer_height, shelf_height)
-                    return True
-
-                # 1) Place in current shelf if fits in x
-                if cursor_x + L <= pallet.length + 1e-9 and shelf_y + W <= pallet.width + 1e-9:
-                    if try_place_at(cursor_x, shelf_y, current_z):
-                        placed = True
-                        break
-
-                # 2) Start new shelf in same layer, if width allows
-                if shelf_y + shelf_height + W <= pallet.width + 1e-9:
-                    if try_place_at(0.0, shelf_y + shelf_height, current_z):
-                        # moved to new shelf
-                        shelf_y = shelf_y + shelf_height
-                        cursor_x = L
-                        shelf_height = max(H, shelf_height)
-                        placed = True
-                        break
-
-            if placed:
-                break
+                if z_level + H > pallet.height_limit + 1e-9:
+                    continue
+                    
+                # Generate candidate positions:
+                # 1. Corner positions (0,0)
+                # 2. Positions aligned with existing box edges at this z-level
+                x_coords = {0.0}
+                y_coords = {0.0}
+                
+                for p in placements:
+                    x_coords.add(p.x)
+                    x_coords.add(p.x + p.length)
+                    y_coords.add(p.y)
+                    y_coords.add(p.y + p.width)
+                
+                # Try each position
+                for x in sorted(x_coords):
+                    for y in sorted(y_coords):
+                        if x + L > pallet.length + 1e-9 or y + W > pallet.width + 1e-9:
+                            continue
+                            
+                        p = Placement(
+                            box_id=box.id,
+                            index=idx,
+                            x=x,
+                            y=y,
+                            z=z_level,
+                            length=L,
+                            width=W,
+                            height=H,
+                            orientation=tag,
+                            label_side=box.label_side,
+                        )
+                        
+                        # Check if placement is valid
+                        if not _fits_within(pallet.length, pallet.width, pallet.height_limit, p):
+                            continue
+                            
+                        # Check for overlaps
+                        overlap = False
+                        for q in placements:
+                            if _does_overlap(p, q):
+                                overlap = True
+                                break
+                        if overlap:
+                            continue
+                            
+                        # Support check: require full coverage for z > 0
+                        if z_level > 0.0:
+                            coverage = _support_coverage(placements, p)
+                            if coverage < 0.999:  # Require nearly full support
+                                continue
+                        
+                        # Calculate placement score (lower is better)
+                        # Strongly prioritize lower z-levels
+                        score = z_level * 1000
+                        
+                        # Add position in x,y to break ties
+                        score += (x + y) * 0.01
+                        
+                        # Label exposure: small bonus for good label placement
+                        label_ok = _can_orient_label_on_perimeter(pallet.length, pallet.width, p)
+                        if label_ok and box.label_side is not None:
+                            score -= 100  # Bonus for good label placement
+                        
+                        # Keep track of best placement
+                        if score < best_score:
+                            best_score = score
+                            best_placement = p
+        
+        # Place the best placement found
+        if best_placement is not None:
+            placements.append(best_placement)
+            placed = True
 
         if not placed:
             unplaced.append((box.id, idx))
 
     # Compute metrics
-    used_height = max(used_height, current_z + max(layer_height, shelf_height))
+    used_height = max([p.z + p.height for p in placements], default=0.0)
     pallet_volume = pallet.length * pallet.width * pallet.height_limit
     used_volume = sum(p.length * p.width * p.height for p in placements)
     utilization = used_volume / pallet_volume if pallet_volume > 0 else 0.0
@@ -228,5 +249,6 @@ def pack(spec: InputSpec) -> Result:
         pick_sequence=pick_sequence,
         stack_sequence=stack_sequence,
     )
+
 
 
