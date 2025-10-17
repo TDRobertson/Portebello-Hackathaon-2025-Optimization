@@ -33,15 +33,6 @@ class Space:
                            w: int, d: int, h: int,
                            max_attempts: int
                            ) -> Optional[Box]:
-        """
-        Try up to max_attempts to place a box of size (w,d,h):
-         1) pick random (x,y)
-         2) let it fall to z_floor = max(0, tops of overlapping footprints)
-         3) ensure z_floor+h <= height
-         4) ensure no 3D overlap
-         5) ensure full‐footprint support (no overhang)
-        On success, appends the Box and returns it; otherwise returns None.
-        """
         for _ in range(max_attempts):
             x = random.randint(0, self.width  - w)
             y = random.randint(0, self.depth  - d)
@@ -53,7 +44,7 @@ class Space:
                         y + d <= e.y or e.y + e.d <= y):
                     z_floor = max(z_floor, e.z + e.h)
 
-            # too tall?
+            # ceiling check
             if z_floor + h > self.height:
                 continue
 
@@ -68,7 +59,6 @@ class Space:
                 supported = True
                 for xi in range(x, x + w):
                     for yi in range(y, y + d):
-                        # must find a box whose top == z_floor covering (xi,yi)
                         if not any(
                             e.z + e.h == z_floor
                             and e.x <= xi < e.x + e.w
@@ -129,12 +119,13 @@ def plot_space(space: Space) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Usage: python place_boxes.py boxes.csv")
+    if len(sys.argv) not in (2, 3):
+        print("Usage: python place_boxes.py boxes.csv [output.csv]")
         sys.exit(1)
-    csv_path = sys.argv[1]
+    input_csv = sys.argv[1]
+    output_csv = sys.argv[2] if len(sys.argv) == 3 else "placements.csv"
 
-    dims = load_dims_from_csv(csv_path)
+    dims = load_dims_from_csv(input_csv)
     if not dims:
         print("No valid boxes to place.")
         sys.exit(1)
@@ -148,18 +139,26 @@ def main() -> None:
 
     space = Space(SPACE_W, SPACE_D, SPACE_H)
 
-    # Place in sequence, stop at first failure
-    for idx, (w, d, h) in enumerate(dims, start=1):
-        placed = space.place_with_gravity(w, d, h, MAX_ATTEMPTS)
-        if placed:
-            print(f"#{idx:02d} Placed size={w}×{d}×{h} at x={placed.x},"
-                  f" y={placed.y}, z={placed.z} (vol={placed.volume})")
-        else:
-            print(f"#{idx:02d} FAILED to place size={w}×{d}×{h} (vol={w*d*h}) "
-                  f"after {MAX_ATTEMPTS} attempts. Stopping.")
-            break
+    # open output CSV and write header
+    with open(output_csv, "w", newline="") as outf:
+        writer = csv.writer(outf)
+        writer.writerow(["id", "w", "d", "h", "x", "y", "z"])
+
+        # Place in sequence, stop at first failure
+        for idx, (w, d, h) in enumerate(dims, start=1):
+            placed = space.place_with_gravity(w, d, h, MAX_ATTEMPTS)
+            if placed:
+                print(f"#{idx:02d} Placed size={w}×{d}×{h} "
+                      f"at x={placed.x}, y={placed.y}, z={placed.z}")
+                writer.writerow([idx, w, d, h,
+                                 placed.x, placed.y, placed.z])
+            else:
+                print(f"#{idx:02d} FAILED to place size={w}×{d}×{h} "
+                      f"after {MAX_ATTEMPTS} attempts. Stopping.")
+                break
 
     print(f"\nSummary: placed {len(space.boxes)} / {len(dims)} boxes.")
+    print(f"Placements written to '{output_csv}'")
     plot_space(space)
 
 
