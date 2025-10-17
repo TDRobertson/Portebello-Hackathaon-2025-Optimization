@@ -59,7 +59,7 @@ class Space:
 
         else:
             for b in self.boxes:
-                for x, y in [(b.x+b.w, b.y), (b.x, b.y+b.d), (b.x+b.w, b.y+b.d)]:
+                for x, y in [(b.x+b.w, b.y), (b.x, b.y+b.d), (b.x+b.w, b.y+b.d)]: #Rotates 90 degrees around the vertical access
                     # find resting height
                     z_floor = 0
                     for e in self.boxes:
@@ -90,9 +90,9 @@ class Space:
                                     for e in self.boxes
                                 ):
                                     supported = False
-                                    break
+                                    continue
                             if not supported:
-                                break
+                                continue
                         if not supported:
                             continue
                     if x + w > self.width or y + d > self.depth: continue
@@ -101,7 +101,50 @@ class Space:
                     if distances == [] or dist < min(distances): 
                         cur_candidate = candidate
                         distances.append(dist)
+                #
+                for x, y in [(b.y, b.x+b.w), (b.y+b.d, b.x), (b.y+b.d, b.x+b.w)]: #Rotates 90 degrees around the vertical access
+                    # find resting height
+                    z_floor = 0
+                    for e in self.boxes:
+                        if not (x + d <= e.x or e.x + e.w <= x or
+                                y + w <= e.y or e.y + e.d <= y):
+                            z_floor = max(z_floor, e.z + e.h)
 
+                    # too tall?
+                    if z_floor + h > self.height:
+                        continue
+
+                    candidate = Box(x, y, z_floor, d, w, h)
+
+                    # 3D overlap?
+                    if any(candidate.overlaps(e) for e in self.boxes):
+                        continue
+
+                    # full‐footprint support
+                    if z_floor > 0:
+                        supported = True
+                        for xi in range(x, x + d):
+                            for yi in range(y, y + w):
+                                # must find a box whose top == z_floor covering (xi,yi)
+                                if not any(
+                                    e.z + e.h == z_floor
+                                    and e.x <= xi < e.x + e.w
+                                    and e.y <= yi < e.y + e.d
+                                    for e in self.boxes
+                                ):
+                                    supported = False
+                                    continue
+                            if not supported:
+                                continue
+                        if not supported:
+                            continue
+                    if x + d > self.width or y + w > self.depth: continue
+                    
+                    dist = math.dist([0,0], [x,y])
+                    if distances == [] or dist < min(distances): 
+                        cur_candidate = candidate
+                        distances.append(dist)
+                        
             # place it
             if distances == []:
                 return None
@@ -240,7 +283,7 @@ def main() -> None:
     dims.sort(key=lambda t: t[0] * t[1] * t[2], reverse=True)
 
     # Space parameters
-    SPACE_W, SPACE_D, SPACE_H = 15, 15, 10
+    SPACE_W, SPACE_D, SPACE_H = 48, 48, 36
     MAX_ATTEMPTS = 10_000
 
     space = Space(SPACE_W, SPACE_D, SPACE_H)
@@ -254,7 +297,7 @@ def main() -> None:
         else:
             print(f"#{idx:02d} FAILED to place size={w}×{d}×{h} (vol={w*d*h}) "
                   f"after {MAX_ATTEMPTS} attempts. Stopping.")
-            break
+            continue
 
     print(f"\nSummary: placed {len(space.boxes)} / {len(dims)} boxes.")
     #plot_space(space)
