@@ -6,6 +6,7 @@
 - [@Maximum Jessey](https://github.com/mjessey)
 - [@Nol Patterson](https://github.com/NullPatterson)
 - [@Jun Han](https://github.com/JunHan10)
+- [@Silas Webber](https://github.com/ZapManSi)
 
 A comprehensive pallet optimization and warehouse management system designed for the Portebello Hackathon 2025. This system combines advanced 3D pallet packing algorithms with Monte Carlo Tree Search (MCTS) optimization, warehouse pathfinding simulation, and Oracle Database integration capabilities to solve complex logistics optimization problems.
 
