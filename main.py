@@ -2,10 +2,9 @@ import csv
 import sys
 import random
 from typing import List, Tuple, Optional
+from itertools import permutations
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-import math
-
 
 class Box:
     def __init__(self, x: int, y: int, z: int,
@@ -24,240 +23,169 @@ class Box:
             self.z + self.h > other.z
         )
 
-
 class Space:
     def __init__(self, width: int, depth: int, height: int) -> None:
         self.width, self.depth, self.height = width, depth, height
         self.boxes: List[Box] = []
 
-    def place_with_gravity(self,
-                           w: int, d: int, h: int,
-                           max_attempts: int
-                           ) -> Optional[Box]:
-        """
-        Try up to max_attempts to place a box of size (w,d,h):
-         1) pick random (x,y)
-         2) let it fall to z_floor = max(0, tops of overlapping footprints)
-         3) ensure z_floor+h <= height
-         4) ensure no 3D overlap
-         5) ensure full‐footprint support (no overhang)
-        On success, appends the Box and returns it; otherwise returns None.
-        """
-        distances = []
-        cur_candidate = 0
-        if self.boxes == []:
-            x, y = 0, 0
-            z_floor = 0
+    def find_z_floor(self, x: int, y: int, w: int, d: int) -> int:
+        zf = 0
+        for e in self.boxes:
+            if not (x + w <= e.x or e.x + e.w <= x or
+                    y + d <= e.y or e.y + e.d <= y):
+                zf = max(zf, e.z + e.h)
+        return zf
 
-            candidate = Box(x, y, z_floor, w, d, h)
-
-            if z_floor + h <= self.height:
-                self.boxes.append(candidate)
-                return candidate
-            else: return None
-
-        else:
-            for b in self.boxes:
-                for x, y in [(b.x+b.w, b.y), (b.x, b.y+b.d), (b.x+b.w, b.y+b.d)]:
-                    # find resting height
-                    z_floor = 0
-                    for e in self.boxes:
-                        if not (x + w <= e.x or e.x + e.w <= x or
-                                y + d <= e.y or e.y + e.d <= y):
-                            z_floor = max(z_floor, e.z + e.h)
-
-                    # too tall?
-                    if z_floor + h > self.height:
-                        continue
-
-                    candidate = Box(x, y, z_floor, w, d, h)
-
-                    # 3D overlap?
-                    if any(candidate.overlaps(e) for e in self.boxes):
-                        continue
-
-                    # full‐footprint support
-                    if z_floor > 0:
-                        supported = True
-                        for xi in range(x, x + w):
-                            for yi in range(y, y + d):
-                                # must find a box whose top == z_floor covering (xi,yi)
-                                if not any(
-                                    e.z + e.h == z_floor
-                                    and e.x <= xi < e.x + e.w
-                                    and e.y <= yi < e.y + e.d
-                                    for e in self.boxes
-                                ):
-                                    supported = False
-                                    break
-                            if not supported:
+    def legal_xy_positions(self, w: int, d: int, h: int) -> List[Tuple[int, int]]:
+        legal = []
+        for x in range(0, self.width - w + 1):
+            for y in range(0, self.depth - d + 1):
+                zf = self.find_z_floor(x, y, w, d)
+                if zf + h > self.height:
+                    continue
+                candidate = Box(x, y, zf, w, d, h)
+                # 3D overlap?
+                if any(candidate.overlaps(e) for e in self.boxes):
+                    continue
+                # full‐footprint support
+                if zf > 0:
+                    ok = True
+                    for xi in range(x, x + w):
+                        for yi in range(y, y + d):
+                            if not any(
+                                e.z + e.h == zf and
+                                e.x <= xi < e.x + e.w and
+                                e.y <= yi < e.y + e.d
+                                for e in self.boxes
+                            ):
+                                ok = False
                                 break
-                        if not supported:
-                            continue
-                    if x + w > self.width or y + d > self.depth: continue
-                    
-                    dist = math.dist([0,0], [x,y])
-                    if distances == [] or dist < min(distances): 
-                        cur_candidate = candidate
-                        distances.append(dist)
+                        if not ok:
+                            break
+                    if not ok:
+                        continue
+                legal.append((x, y))
+        return legal
 
-            # place it
-            if distances == []:
-                return None
-            else:   
-                self.boxes.append(cur_candidate)
-                return cur_candidate
+    def place_at(self, x: int, y: int, w: int, d: int, h: int) -> Box:
+        zf = self.find_z_floor(x, y, w, d)
+        b = Box(x, y, zf, w, d, h)
+        self.boxes.append(b)
+        return b
 
-        return None
-
-
-
-def load_dims_from_csv(path: str) -> List[Tuple[int, int, int]]:
-    dims: List[Tuple[int, int, int]] = []
+def load_dims_from_csv(path: str) -> List[Tuple[int,int,int]]:
+    dims: List[Tuple[int,int,int]] = []
     with open(path, newline="") as f:
         reader = csv.reader(f)
-        for lineno, row in enumerate(reader, start=1):
-            if len(row) < 3:
-                print(f"Skipping line {lineno}: not enough values")
+        for i,row in enumerate(reader,1):
+            if len(row)<3:
+                print(f"Skipping line {i}: not enough cols")
                 continue
             try:
-                w, d, h = map(int, row[:3])
-                if w <= 0 or d <= 0 or h <= 0:
+                w,d,h = map(int, row[:3])
+                if w<=0 or d<=0 or h<=0:
                     raise ValueError
             except ValueError:
-                print(f"Skipping line {lineno}: invalid dims {row}")
+                print(f"Skipping line {i}: invalid dims {row}")
                 continue
-            dims.append((w, d, h))
+            dims.append((w,d,h))
     return dims
 
-
 def plot_space(space: Space) -> None:
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(7,7))
     ax = fig.add_subplot(111, projection="3d")
     vols = [b.volume for b in space.boxes]
-    if vols:
-        cmap = plt.cm.viridis
-        norm = plt.Normalize(min(vols), max(vols))
+    cmap = plt.cm.viridis if vols else None
+    norm = plt.Normalize(min(vols), max(vols)) if vols else None
     for b in space.boxes:
         color = cmap(norm(b.volume)) if vols else "skyblue"
         ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
-                 color=color, edgecolor="k", alpha=0.7)
+                 color=color, edgecolor="k", alpha=1)
     ax.set_xlim(0, space.width)
     ax.set_ylim(0, space.depth)
     ax.set_zlim(0, space.height)
     ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
-    plt.title(f"Placed {len(space.boxes)} boxes")
     plt.tight_layout()
     plt.show()
-
-def plot_space_interactive(space: Space, update_interval: int = 2000) -> None:
-    from matplotlib.animation import FuncAnimation
-    from collections import defaultdict
-    """
-    Create an interactive 3D plot that adds boxes layer by layer based on z-coordinate.
-    
-    Args:
-        space: Space object containing boxes
-        update_interval: Time between layer additions in milliseconds (default: 2000ms = 2 seconds)
-    """
-    fig = plt.figure(figsize=(8, 8))
-    ax = fig.add_subplot(111, projection="3d")
-    
-    # Group boxes by layers (z coordinate)
-    groups = defaultdict(list)
-    for b in space.boxes:
-        groups[b.z].append(b)
-    
-    # Sort layers by z coordinate
-    sorted_z_values = sorted(groups.keys())
-    box_layers = [groups[z] for z in sorted_z_values]
-    
-    # Setup colormap
-    vols = [b.volume for b in space.boxes]
-    if vols:
-        cmap = plt.cm.viridis
-        norm = plt.Normalize(min(vols), max(vols))
-    
-    def update_plot(frame):
-        """Update function called at each animation frame"""
-        ax.clear()
-        
-        # Draw boxes up to current layer (frame)
-        layers_to_show = min(frame + 1, len(box_layers))
-        boxes_shown = 0
-        
-        for layer_idx in range(layers_to_show):
-            for b in box_layers[layer_idx]:
-                color = cmap(norm(b.volume)) if vols else "skyblue"
-                ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
-                        color=color, edgecolor="k", alpha=0.7)
-                boxes_shown += 1
-        
-        # Set axis properties
-        ax.set_xlim(0, space.width)
-        ax.set_ylim(0, space.depth)
-        ax.set_zlim(0, space.height)
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_title(f"Placed {boxes_shown}/{len(space.boxes)} boxes | Z-Layer {layers_to_show}/{len(box_layers)}")
-        
-        return ax,
-    
-    # Create animation - frames = number of layers
-    anim = FuncAnimation(fig, update_plot, frames=len(box_layers), 
-                        interval=update_interval, blit=False, 
-                        repeat=False, cache_frame_data=False)
-    
-    plt.tight_layout()
-    plt.show()
-    
-    return anim  # Return animation object to keep it alive
-
 
 def main() -> None:
-    if len(sys.argv) not in (2, 3):
-        print("Usage: python place_boxes.py boxes.csv [output.csv]")
+    if len(sys.argv)!=2:
+        print("Usage: python place_boxes.py boxes.csv")
         sys.exit(1)
-    input_csv = sys.argv[1]
-    output_csv = sys.argv[2] if len(sys.argv) == 3 else "placements.csv"
-
-    dims = load_dims_from_csv(input_csv)
-    if not dims:
-        print("No valid boxes to place.")
+    dims_list = load_dims_from_csv(sys.argv[1])
+    if not dims_list:
+        print("No valid boxes.")
         sys.exit(1)
 
-    # sort by descending volume
-    dims.sort(key=lambda t: t[0] * t[1] * t[2], reverse=True)
+    # Sort by descending volume
+    dims_list.sort(key=lambda t: t[0]*t[1]*t[2], reverse=True)
 
-    # Space parameters
-    SPACE_W, SPACE_D, SPACE_H = 15, 15, 10
-    MAX_ATTEMPTS = 10_000
-
+    SPACE_W,SPACE_D,SPACE_H = 15,15,10
     space = Space(SPACE_W, SPACE_D, SPACE_H)
 
-    # open output CSV and write header
-    with open(output_csv, "w", newline="") as outf:
-        writer = csv.writer(outf)
-        writer.writerow(["id", "w", "d", "h", "x", "y", "z"])
+    for idx, dims in enumerate(dims_list, start=1):
+        w0,d0,h0 = dims
+        # original box’s largest face‐area:
+        max_area = max(w0*d0, w0*h0, d0*h0)
+        # all unique orientations:
+        orients = set(permutations(dims))
+        # only keep those that do NOT put largest face horizontal
+        allowed_orients = [o for o in orients if o[0]*o[1]!=max_area]
 
-        # Place in sequence, stop at first failure
-        for idx, (w, d, h) in enumerate(dims, start=1):
-            placed = space.place_with_gravity(w, d, h, MAX_ATTEMPTS)
-            if placed:
-                print(f"#{idx:02d} Placed size={w}×{d}×{h} "
-                      f"at x={placed.x}, y={placed.y}, z={placed.z}")
-                writer.writerow([idx, w, d, h,
-                                 placed.x, placed.y, placed.z])
-            else:
-                print(f"#{idx:02d} FAILED to place size={w}×{d}×{h} "
-                      f"after {MAX_ATTEMPTS} attempts. Stopping.")
+        current = dims  # start in default orientation
+        rot_count = 0
+
+        print(f"Box #{idx:02d} orig={dims} vol={w0*d0*h0}")
+        while True:
+            # build legal rotation actions
+            rots = []
+            if rot_count<3:
+                for o in allowed_orients:
+                    if o!=current:
+                        rots.append(o)
+
+            # is current orientation “illegal” (flat on largest face)?
+            base_area = current[0]*current[1]
+            largest_flat = (base_area==max_area)
+
+            # build place actions only if not lying on largest face
+            places: List[Tuple[int,int]] = []
+            if not largest_flat:
+                places = space.legal_xy_positions(current[0],
+                                                  current[1],
+                                                  current[2])
+
+            # assemble action space
+            actions: List[Tuple[str, Tuple[int,int,int]]] = []
+            # place actions
+            for (x,y) in places:
+                actions.append(("place", (x,y)+current))
+            # rotation actions
+            for o in rots:
+                actions.append(("rotate", o))
+
+            print(f"  Orientation={current}  rotations_used={rot_count}")
+            print(f"    → {len(places)} place‐actions, {len(rots)} rotations")
+
+            if not actions:
+                print("    ! No legal actions → skipping this box\n")
                 break
 
-    print(f"\nSummary: placed {len(space.boxes)} / {len(dims)} boxes.")
-    print(f"Placements written to '{output_csv}'")
-    anim = plot_space_interactive(space)
+            # pick one action at random
+            act, payload = random.choice(actions)
+            if act=="rotate":
+                current = payload
+                rot_count += 1
+                print(f"    * ROTATE → new orient={current}")
+                continue
+            else:  # "place"
+                x,y,w,d,h = payload
+                placed = space.place_at(x,y,w,d,h)
+                print(f"    ✔ PLACE at x={placed.x},y={placed.y},z={placed.z}\n")
+                break
 
+    print(f"Summary: placed {len(space.boxes)}/{len(dims_list)} boxes.")
+    plot_space(space)
 
 if __name__ == "__main__":
     main()
