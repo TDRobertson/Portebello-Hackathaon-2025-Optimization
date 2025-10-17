@@ -135,13 +135,24 @@ def plot_space(space: Space) -> None:
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d")
     vols = [b.volume for b in space.boxes]
+
+    # Sorting by layers.
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for b in space.boxes:
+        groups[b.y].append(b)
+
+    # Step 2: Convert the grouped values to a list of lists
+    box_layers = list(groups.values())
+    
     if vols:
         cmap = plt.cm.viridis
         norm = plt.Normalize(min(vols), max(vols))
-    for b in space.boxes:
-        color = cmap(norm(b.volume)) if vols else "skyblue"
-        ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
-                 color=color, edgecolor="k", alpha=0.7)
+    for l in box_layers:
+        for b in l:
+            color = cmap(norm(b.volume)) if vols else "skyblue"
+            ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
+                    color=color, edgecolor="k", alpha=0.7)
     ax.set_xlim(0, space.width)
     ax.set_ylim(0, space.depth)
     ax.set_zlim(0, space.height)
@@ -150,6 +161,69 @@ def plot_space(space: Space) -> None:
     plt.tight_layout()
     plt.show()
 
+def plot_space_interactive(space: Space, update_interval: int = 2000) -> None:
+    from matplotlib.animation import FuncAnimation
+    from collections import defaultdict
+    """
+    Create an interactive 3D plot that adds boxes layer by layer based on z-coordinate.
+    
+    Args:
+        space: Space object containing boxes
+        update_interval: Time between layer additions in milliseconds (default: 2000ms = 2 seconds)
+    """
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection="3d")
+    
+    # Group boxes by layers (z coordinate)
+    groups = defaultdict(list)
+    for b in space.boxes:
+        groups[b.z].append(b)
+    
+    # Sort layers by z coordinate
+    sorted_z_values = sorted(groups.keys())
+    box_layers = [groups[z] for z in sorted_z_values]
+    
+    # Setup colormap
+    vols = [b.volume for b in space.boxes]
+    if vols:
+        cmap = plt.cm.viridis
+        norm = plt.Normalize(min(vols), max(vols))
+    
+    def update_plot(frame):
+        """Update function called at each animation frame"""
+        ax.clear()
+        
+        # Draw boxes up to current layer (frame)
+        layers_to_show = min(frame + 1, len(box_layers))
+        boxes_shown = 0
+        
+        for layer_idx in range(layers_to_show):
+            for b in box_layers[layer_idx]:
+                color = cmap(norm(b.volume)) if vols else "skyblue"
+                ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
+                        color=color, edgecolor="k", alpha=0.7)
+                boxes_shown += 1
+        
+        # Set axis properties
+        ax.set_xlim(0, space.width)
+        ax.set_ylim(0, space.depth)
+        ax.set_zlim(0, space.height)
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_zlabel("Z")
+        ax.set_title(f"Placed {boxes_shown}/{len(space.boxes)} boxes | Z-Layer {layers_to_show}/{len(box_layers)}")
+        
+        return ax,
+    
+    # Create animation - frames = number of layers
+    anim = FuncAnimation(fig, update_plot, frames=len(box_layers), 
+                        interval=update_interval, blit=False, 
+                        repeat=False, cache_frame_data=False)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    return anim  # Return animation object to keep it alive
 
 def main() -> None:
     if len(sys.argv) != 2:
@@ -183,7 +257,8 @@ def main() -> None:
             break
 
     print(f"\nSummary: placed {len(space.boxes)} / {len(dims)} boxes.")
-    plot_space(space)
+    #plot_space(space)
+    anim = plot_space_interactive(space)
 
 
 if __name__ == "__main__":
