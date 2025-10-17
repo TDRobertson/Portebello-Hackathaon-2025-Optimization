@@ -1,7 +1,22 @@
+"""
+warehouse_auto_targets.py
+
+Polished Pygame UI that:
+- Generates random warehouse location codes (B#.J#.SS.SS)
+- Maps them to grid coordinates
+- Finds a greedy visiting order via A* distances
+- Visualizes A* (open/closed sets) and animates the agent smoothly
+
+Run:
+    python warehouse_auto_targets.py
+"""
+
 import pygame
 import heapq
 import math
 import sys
+import random
+from collections import deque
 
 pygame.init()
 
@@ -11,7 +26,7 @@ CELL_SIZE = 30
 WIDTH, HEIGHT = COLS * CELL_SIZE, ROWS * CELL_SIZE + 36  # extra for HUD
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Warehouse Path Optimization — Polished UI")
+pygame.display.set_caption("Warehouse Path Optimization — Auto Targets")
 
 # --- COLORS (softer theme) ---
 BG = (240, 248, 255)         # background
@@ -35,7 +50,7 @@ FONT = pygame.font.SysFont("Segoe UI", 18) if pygame.font.get_init() else pygame
 # --- MAP GENERATION ---
 warehouse_map = [[0 for _ in range(COLS)] for _ in range(ROWS)]
 
-# Create shelves (1) and aisles (0) with spacing pattern (same as original logic)
+# Create shelves (1) and aisles (0) with spacing pattern
 for r in range(2, ROWS - 2):
     if r % 4 == 0:
         continue
@@ -59,7 +74,7 @@ def draw_rounded_rect(surface, color, rect, radius=6):
     pygame.draw.rect(surface, color, rect, border_radius=radius)
 
 # --- DRAW FUNCTION ---
-def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=None, closed=None, openset=None, msg=""):
+def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=None, closed=None, openset=None, msg="", show_codes=None):
     # background
     screen.fill(BG)
 
@@ -98,10 +113,11 @@ def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=N
         for (r, c) in path:
             pygame.draw.rect(grid_surface, PATH, (c*CELL_SIZE+3, r*CELL_SIZE+3, CELL_SIZE-6, CELL_SIZE-6), border_radius=5)
 
-    # draw start and targets
+    # draw targets
     if targets:
         for (r, c) in targets:
             pygame.draw.rect(grid_surface, TARGET_COLOR, (c*CELL_SIZE+5, r*CELL_SIZE+5, CELL_SIZE-10, CELL_SIZE-10), border_radius=5)
+    # draw start
     if start:
         pygame.draw.rect(grid_surface, START_COLOR, (start[1]*CELL_SIZE+4, start[0]*CELL_SIZE+4, CELL_SIZE-8, CELL_SIZE-8), border_radius=5)
 
@@ -112,12 +128,10 @@ def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=N
     if agent_pixel:
         ax, ay = agent_pixel
         pygame.draw.circle(screen, AGENT, (int(ax), int(ay)), CELL_SIZE//3)
-        # small glow
         glow = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
         pygame.draw.circle(glow, (AGENT[0], AGENT[1], AGENT[2], 50), (CELL_SIZE//2, CELL_SIZE//2), CELL_SIZE//2)
         screen.blit(glow, (int(ax - CELL_SIZE//2), int(ay - CELL_SIZE//2)), special_flags=pygame.BLEND_RGBA_ADD)
     elif agent_cell:
-        # fallback to grid-aligned agent
         r, c = agent_cell
         cx = c * CELL_SIZE + CELL_SIZE // 2
         cy = r * CELL_SIZE + CELL_SIZE // 2 + 36
@@ -128,6 +142,16 @@ def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=N
     pygame.draw.line(screen, HUD_LINE, (0, 36), (WIDTH, 36))
     text = FONT.render(msg, True, TEXT_COLOR)
     screen.blit(text, (10, 8))
+
+    # show codes list on HUD (trim if too long)
+    if show_codes:
+        display_str = " | ".join(show_codes)
+        # trim to fit
+        max_len = 80
+        if len(display_str) > max_len:
+            display_str = display_str[:max_len-3] + "..."
+        codes_text = FONT.render(display_str, True, TEXT_COLOR)
+        screen.blit(codes_text, (10, 36 + 4))
 
     # footer summary (targets count)
     if targets:
@@ -167,7 +191,6 @@ def a_star_visualized(start, goal, visualize=True, speed_wait=6):
 
         # visualize current frontier & closed
         if visualize:
-            # create a list of open nodes for drawing
             open_list = list(open_set)
             draw_map(
                 agent_pixel=None,
@@ -177,17 +200,16 @@ def a_star_visualized(start, goal, visualize=True, speed_wait=6):
                 path=None,
                 closed=closed_set,
                 openset=open_list,
-                msg="🔍 Searching — A* expanding..."
+                msg="🔍 Searching — A* expanding...",
+                show_codes=None
             )
             pygame.time.delay(speed_wait)
 
         if current == goal:
-            # reconstruct path
             path = [goal]
             while path[-1] in came_from:
                 path.append(came_from[path[-1]])
             path.reverse()
-            # return excluding start? keep full path from start to goal
             return path
 
         for nb in neighbors(current):
@@ -206,38 +228,76 @@ def a_star_visualized(start, goal, visualize=True, speed_wait=6):
 
     return []
 
-# --- TARGET SELECTION (mouse) ---
-def select_targets(start):
-    targets = []
-    selecting = True
-    draw_map(agent_cell=None, start=start, targets=targets, msg="🖱 Click free cells to add targets, press ENTER when done")
-    while selecting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit(); sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    selecting = False
-                elif event.key == pygame.K_ESCAPE:
-                    pygame.quit(); sys.exit()
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mx, my = event.pos
-                # ignore clicks on HUD
-                if my < 36:
-                    continue
-                col = mx // CELL_SIZE
-                row = (my - 36) // CELL_SIZE
-                if in_bounds((row, col)) and warehouse_map[row][col] == 0:
-                    if (row, col) not in targets and (row, col) != start:
-                        targets.append((row, col))
-                    elif (row, col) in targets:
-                        targets.remove((row, col))
+# --- TARGET CODE GENERATION ---
+def generate_random_locations(n=5):
+    locations = []
+    for _ in range(n):
+        bulk = f"B{random.randint(1, 9)}"
+        isle = f"J{random.randint(1, 4)}"
+        section = f"{random.randint(1, 99):02}"
+        slot = f"{random.randint(1, 5):02}"
+        loc = f"{bulk}.{isle}.{section}.{slot}"
+        locations.append(loc)
+    return locations
 
-        draw_map(agent_cell=None, start=start, targets=targets, msg="🖱 Click free cells to add targets, press ENTER when done")
-        clock.tick(60)
-    return targets
+# --- MAP STRING -> GRID COORDINATE ---
+def location_to_grid(location: str):
+    """
+    Convert 'B5.J2.43.01' style location into grid coordinates (row, col).
+    The mapping is heuristical: tune to match your real layout.
+    """
+    try:
+        parts = location.split(".")
+        if len(parts) != 4:
+            raise ValueError("Invalid format")
+        b, j, section, slot = parts
+        bulk = int(b[1:])
+        isle = int(j[1:])
+        section = int(section)
+        slot = int(slot)
 
-# --- SIMPLE GREEDY ORDERING (using A* distances, quiet) ---
+        # A deterministic mapping: tune constants as required.
+        # These constants attempt to spread points across the grid.
+        row = 2 + (isle - 1) * 4 + (section % 3)
+        col = 2 + (bulk - 1) * 2 + (slot % 3)
+
+        # clamp
+        row = min(max(row, 0), ROWS - 1)
+        col = min(max(col, 0), COLS - 1)
+
+        # if the mapped cell is a shelf, find nearest free cell
+        if warehouse_map[row][col] == 1:
+            row, col = find_nearest_free((row, col))
+
+        return (row, col)
+    except Exception:
+        # fallback to top-left free cell
+        return find_nearest_free((1, 1))
+
+def find_nearest_free(start_cell):
+    """BFS to nearest warehouse_map == 0."""
+    if warehouse_map[start_cell[0]][start_cell[1]] == 0:
+        return start_cell
+    visited = set([start_cell])
+    dq = deque([start_cell])
+    while dq:
+        cell = dq.popleft()
+        for nb in neighbors(cell):
+            if nb in visited:
+                continue
+            visited.add(nb)
+            r, c = nb
+            if warehouse_map[r][c] == 0:
+                return nb
+            dq.append(nb)
+    # final fallback
+    for r in range(ROWS):
+        for c in range(COLS):
+            if warehouse_map[r][c] == 0:
+                return (r, c)
+    return (1, 1)
+
+# --- SIMPLE GREEDY ORDERING (using A* distances) ---
 def find_best_order(targets, start):
     remaining = targets[:]
     order = []
@@ -266,34 +326,29 @@ def fade_in(duration_ms=400):
     for i in range(steps + 1):
         alpha = int(255 * (1 - i / steps))
         overlay.set_alpha(alpha)
-        draw_map(msg="Welcome — select targets", agent_cell=None, start=(1,1), targets=[], path=None, closed=None, openset=None)
+        draw_map(msg="Welcome — auto-loading targets", agent_cell=None, start=(1,1), targets=[], path=None, closed=None, openset=None, show_codes=None)
         screen.blit(overlay, (0, 0))
         pygame.display.flip()
         pygame.time.delay(wait)
 
-# --- SMOOTH ANIMATION: agent moves pixel-by-pixel, handles quit events ---
+# --- SMOOTH ANIMATION: agent moves pixel-by-pixel ---
 def animate_path(full_path, start, targets, per_cell_frames=12):
     if not full_path:
         return
-    # agent start pixel (center)
     agent_x = start[1] * CELL_SIZE + CELL_SIZE // 2
-    agent_y = start[0] * CELL_SIZE + CELL_SIZE // 2 + 36  # account for HUD offset
+    agent_y = start[0] * CELL_SIZE + CELL_SIZE // 2 + 36  # HUD offset
 
-    # draw final combined path highlight as background as we move
     for idx, cell in enumerate(full_path):
         target_r, target_c = cell
         tx = target_c * CELL_SIZE + CELL_SIZE // 2
         ty = target_r * CELL_SIZE + CELL_SIZE // 2 + 36
 
-        # interpolate with easing for nice motion
         for frame in range(per_cell_frames):
             t = (frame + 1) / per_cell_frames
-            # ease in-out (smooth)
             t_ease = -(math.cos(math.pi * t) - 1) / 2
             cur_x = agent_x + (tx - agent_x) * t_ease
             cur_y = agent_y + (ty - agent_y) * t_ease
 
-            # event handling
             for ev in pygame.event.get():
                 if ev.type == pygame.QUIT:
                     pygame.quit(); sys.exit()
@@ -301,14 +356,13 @@ def animate_path(full_path, start, targets, per_cell_frames=12):
                     pygame.quit(); sys.exit()
 
             draw_map(agent_pixel=(cur_x, cur_y), start=start, targets=targets, path=full_path, closed=None, openset=None,
-                     msg="🤖 Moving along optimal route...")
+                     msg="🤖 Moving along optimal route...", show_codes=None)
             clock.tick(60)
 
         agent_x, agent_y = tx, ty
 
-    # final state
     draw_map(agent_pixel=(agent_x, agent_y), start=start, targets=targets, path=full_path, closed=None, openset=None,
-             msg="✅ Path complete!")
+             msg="✅ Path complete!", show_codes=None)
     pygame.time.delay(1000)
 
 # --- MAIN ---
@@ -316,38 +370,44 @@ def main():
     start = (1, 1)
     fade_in(450)
 
-    draw_map(agent_cell=None, start=start, targets=[], msg="🖱 Click to select targets, press ENTER to start")
-    targets = select_targets(start)
+    # generate codes and convert to coordinates
+    n_targets = 6  # change this number to generate more/fewer
+    codes = generate_random_locations(n_targets)
+    targets = [location_to_grid(code) for code in codes]
 
-    if not targets:
-        print("No targets selected.")
-        return
+    # display initial HUD with codes
+    draw_map(agent_cell=None, start=start, targets=targets, msg="📦 Auto-loaded targets (see HUD). Computing order...", show_codes=codes)
+    pygame.time.delay(700)
 
-    # order targets with greedy heuristic (quiet)
-    draw_map(msg="🔢 Computing visit order...", start=start, targets=targets)
+    # compute visiting order
     best_order = find_best_order(targets, start)
 
-    # compute full path by concatenating A* segments with visualization for each segment
+    # compute full path (concatenate A* segments; visualize each segment)
     full_path = []
     current = start
     for idx, target in enumerate(best_order):
-        # visualize A* search for this segment (slower, visible)
         segment = a_star_visualized(current, target, visualize=True, speed_wait=6)
         if not segment:
-            print("A segment was unreachable:", target)
+            print("Unreachable segment:", target)
             continue
-        # if the segment starts with current, skip duplicated first step to avoid repeating cell
         if full_path and segment and segment[0] == full_path[-1]:
             full_path.extend(segment[1:])
         else:
             full_path.extend(segment)
         current = target
 
-    # animate the agent along the resulting full path
-    animate_path(full_path, start, best_order)
+    # animate
+    animate_path(full_path, start, best_order, per_cell_frames=12)
 
-    # finished — wait a bit and exit gracefully
-    pygame.time.delay(400)
+    # final display of codes and order
+    ordered_codes = []
+    # map coordinates back to codes for HUD summary (best-effort)
+    coords_to_code = {location_to_grid(c): c for c in codes}
+    for coord in best_order:
+        ordered_codes.append(coords_to_code.get(coord, f"{coord}"))
+
+    draw_map(agent_cell=None, start=start, targets=targets, path=full_path, msg="Finished — visiting order shown in HUD", show_codes=ordered_codes)
+    pygame.time.delay(1400)
     pygame.quit()
 
 if __name__ == "__main__":
