@@ -100,7 +100,7 @@ def plot_space(space: Space) -> None:
     for b in space.boxes:
         color = cmap(norm(b.volume)) if vols else "skyblue"
         ax.bar3d(b.x, b.y, b.z, b.w, b.d, b.h,
-                 color=color, edgecolor="k", alpha=1)
+                 color=color, edgecolor="k", alpha=0.7)
     ax.set_xlim(0, space.width)
     ax.set_ylim(0, space.depth)
     ax.set_zlim(0, space.height)
