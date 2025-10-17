@@ -26,6 +26,12 @@ class WarehouseVisualization2D(FigureCanvas):
         self.rows, self.cols = 20, 25
         self.cell_size = 1
         
+        # Pathfinding state
+        self.start_pos = None
+        self.targets = []
+        self.current_path = []
+        self.pathfinder = None
+        
         # Colors
         self.colors = {
             'aisle': '#E1E8F0',
@@ -135,7 +141,92 @@ class WarehouseVisualization2D(FigureCanvas):
         self.ax.set_title(title)
         self.ax.invert_yaxis()  # Invert Y axis so (0,0) is top-left
         
+        # Connect mouse click events for interactive target selection
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click)
+        
         self.draw()
+    
+    def on_click(self, event):
+        """Handle mouse clicks for adding targets"""
+        if event.inaxes != self.ax:
+            return
+        
+        if event.button == 1:  # Left click
+            # Convert click coordinates to grid coordinates
+            col = int(event.xdata)
+            row = int(event.ydata)
+            
+            # Check if click is within bounds
+            if 0 <= row < self.rows and 0 <= col < self.cols:
+                self.add_target_interactive((row, col))
+    
+    def set_start_position(self, start: Tuple[int, int]):
+        """Set the starting position for pathfinding"""
+        self.start_pos = start
+        self.pathfinder = PathfindingVisualization(self.warehouse_map) if self.warehouse_map else None
+    
+    def set_targets(self, targets: List[Tuple[int, int]]):
+        """Set target positions for pathfinding"""
+        self.targets = targets
+        if self.pathfinder and self.start_pos:
+            self.calculate_optimal_route()
+    
+    def calculate_optimal_route(self):
+        """Calculate the optimal route visiting all targets"""
+        if not self.pathfinder or not self.start_pos or not self.targets:
+            return
+        
+        # Find optimal order to visit all targets
+        optimal_order = self.pathfinder.find_optimal_order(self.start_pos, self.targets)
+        
+        # Calculate full path
+        self.current_path = self.pathfinder.get_full_path(self.start_pos, optimal_order)
+        
+        # Update visualization
+        self.draw_warehouse(
+            start=self.start_pos,
+            targets=self.targets,
+            path=self.current_path,
+            title=f"Optimal Route - {len(self.current_path)} steps"
+        )
+    
+    def add_target_interactive(self, pos: Tuple[int, int]):
+        """Add a target position interactively"""
+        if self.warehouse_map and self.warehouse_map[pos[0]][pos[1]] == 0:  # Only on aisles
+            if pos not in self.targets and pos != self.start_pos:
+                self.targets.append(pos)
+                if self.start_pos:
+                    self.calculate_optimal_route()
+                else:
+                    self.draw_warehouse(
+                        start=self.start_pos,
+                        targets=self.targets,
+                        path=self.current_path,
+                        title="Click to set start position, then add targets"
+                    )
+    
+    def clear_targets(self):
+        """Clear all targets and reset path"""
+        self.targets = []
+        self.current_path = []
+        self.draw_warehouse(
+            start=self.start_pos,
+            targets=self.targets,
+            path=self.current_path,
+            title="Warehouse Layout - Click to add targets"
+        )
+    
+    def get_route_info(self) -> Dict[str, Any]:
+        """Get information about the current route"""
+        if not self.current_path:
+            return {"steps": 0, "targets_visited": 0, "efficiency": 0}
+        
+        return {
+            "steps": len(self.current_path),
+            "targets_visited": len(self.targets),
+            "efficiency": len(self.targets) / len(self.current_path) if self.current_path else 0,
+            "path": self.current_path
+        }
 
 
 class WarehouseVisualization3D(FigureCanvas):

@@ -250,13 +250,20 @@ class MainWindow(QMainWindow):
         # Create main splitter
         main_splitter = QSplitter(Qt.Horizontal)
         
-        # Left side - Picklist and controls
+        # Left side - Control tabs
         left_widget = QWidget()
         left_layout = QVBoxLayout()
         
+        # Create tab widget for controls
+        self.control_tabs = QTabWidget()
+        
+        # === BOX CONTROL TAB ===
+        box_control_widget = QWidget()
+        box_control_layout = QVBoxLayout()
+        
         # Picklist widget
         self.picklist_widget = PicklistWidget()
-        left_layout.addWidget(self.picklist_widget)
+        box_control_layout.addWidget(self.picklist_widget)
         
         # Space configuration
         space_group = QGroupBox("Warehouse Space Configuration")
@@ -281,7 +288,7 @@ class MainWindow(QMainWindow):
         space_layout.addWidget(self.height_spin, 2, 1)
         
         space_group.setLayout(space_layout)
-        left_layout.addWidget(space_group)
+        box_control_layout.addWidget(space_group)
         
         # Optimization controls
         opt_group = QGroupBox("Optimization Controls")
@@ -301,7 +308,7 @@ class MainWindow(QMainWindow):
         opt_layout.addWidget(self.progress_bar)
         
         opt_group.setLayout(opt_layout)
-        left_layout.addWidget(opt_group)
+        box_control_layout.addWidget(opt_group)
         
         # Results display
         results_group = QGroupBox("Optimization Results")
@@ -313,8 +320,85 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(self.results_text)
         
         results_group.setLayout(results_layout)
-        left_layout.addWidget(results_group)
+        box_control_layout.addWidget(results_group)
         
+        box_control_widget.setLayout(box_control_layout)
+        self.control_tabs.addTab(box_control_widget, "Box Control")
+        
+        # === PATHFINDING TAB ===
+        pathfinding_widget = QWidget()
+        pathfinding_layout = QVBoxLayout()
+        
+        # Start position controls
+        start_group = QGroupBox("Start Position")
+        start_layout = QGridLayout()
+        start_layout.addWidget(QLabel("Row:"), 0, 0)
+        self.start_row_spin = QSpinBox()
+        self.start_row_spin.setRange(0, 19)
+        self.start_row_spin.setValue(1)
+        start_layout.addWidget(self.start_row_spin, 0, 1)
+        
+        start_layout.addWidget(QLabel("Col:"), 1, 0)
+        self.start_col_spin = QSpinBox()
+        self.start_col_spin.setRange(0, 24)
+        self.start_col_spin.setValue(1)
+        start_layout.addWidget(self.start_col_spin, 1, 1)
+        
+        self.set_start_btn = QPushButton("Set Start Position")
+        self.set_start_btn.clicked.connect(self.set_start_position)
+        start_layout.addWidget(self.set_start_btn, 2, 0, 1, 2)
+        
+        start_group.setLayout(start_layout)
+        pathfinding_layout.addWidget(start_group)
+        
+        # Target controls
+        target_group = QGroupBox("Target Management")
+        target_layout = QVBoxLayout()
+        
+        self.add_target_btn = QPushButton("Add Random Target")
+        self.add_target_btn.clicked.connect(self.add_random_target)
+        target_layout.addWidget(self.add_target_btn)
+        
+        self.clear_targets_btn = QPushButton("Clear All Targets")
+        self.clear_targets_btn.clicked.connect(self.clear_all_targets)
+        target_layout.addWidget(self.clear_targets_btn)
+        
+        self.calculate_route_btn = QPushButton("Calculate Optimal Route")
+        self.calculate_route_btn.clicked.connect(self.calculate_route)
+        target_layout.addWidget(self.calculate_route_btn)
+        
+        target_group.setLayout(target_layout)
+        pathfinding_layout.addWidget(target_group)
+        
+        # Route info
+        self.route_info_text = QTextEdit()
+        self.route_info_text.setMaximumHeight(150)
+        self.route_info_text.setReadOnly(True)
+        pathfinding_layout.addWidget(QLabel("Route Information:"))
+        pathfinding_layout.addWidget(self.route_info_text)
+        
+        # Instructions
+        instructions_group = QGroupBox("Instructions")
+        instructions_layout = QVBoxLayout()
+        instructions_text = QTextEdit()
+        instructions_text.setMaximumHeight(100)
+        instructions_text.setReadOnly(True)
+        instructions_text.setPlainText(
+            "1. Set start position using controls above\n"
+            "2. Click on aisles in the 2D map to add targets\n"
+            "3. Click 'Calculate Optimal Route' to see the path\n"
+            "4. View route statistics in the info panel\n\n"
+            "Note: Targets can only be placed on aisles (light blue areas)"
+        )
+        instructions_layout.addWidget(instructions_text)
+        instructions_group.setLayout(instructions_layout)
+        pathfinding_layout.addWidget(instructions_group)
+        
+        pathfinding_widget.setLayout(pathfinding_layout)
+        self.control_tabs.addTab(pathfinding_widget, "Pathfinding")
+        
+        # Add control tabs to left layout
+        left_layout.addWidget(self.control_tabs)
         left_widget.setLayout(left_layout)
         main_splitter.addWidget(left_widget)
         
@@ -323,17 +407,17 @@ class MainWindow(QMainWindow):
         right_layout = QVBoxLayout()
         
         # Create tab widget for different visualizations
-        viz_tabs = QTabWidget()
+        self.viz_tabs = QTabWidget()
         
         # 3D visualization tab
         self.visualization_3d = WarehouseVisualization3D()
-        viz_tabs.addTab(self.visualization_3d, "3D Layout")
+        self.viz_tabs.addTab(self.visualization_3d, "3D Layout")
         
         # 2D path visualization tab
         self.visualization_2d = WarehouseVisualization2D()
-        viz_tabs.addTab(self.visualization_2d, "2D Path")
+        self.viz_tabs.addTab(self.visualization_2d, "2D Path")
         
-        right_layout.addWidget(viz_tabs)
+        right_layout.addWidget(self.viz_tabs)
         right_widget.setLayout(right_layout)
         main_splitter.addWidget(right_widget)
         
@@ -352,6 +436,9 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+        
+        # Initialize 2D visualization
+        self.initialize_2d_visualization()
         
     def create_menu_bar(self):
         """Create application menu bar"""
@@ -380,6 +467,18 @@ class MainWindow(QMainWindow):
         about_action = QAction('About', self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+    
+    def initialize_2d_visualization(self):
+        """Initialize the 2D visualization with warehouse map"""
+        self.visualization_2d.generate_warehouse_map(20, 25)
+        self.visualization_2d.set_start_position((1, 1))
+        self.visualization_2d.draw_warehouse(
+            start=(1, 1),
+            targets=[],
+            path=[],
+            title="Warehouse Layout - Click to add targets for pathfinding"
+        )
+        self.update_route_info()
     
     def run_optimization(self):
         """Run MCTS optimization on selected items"""
@@ -445,9 +544,26 @@ class MainWindow(QMainWindow):
         space_dims = (self.width_spin.value(), self.depth_spin.value(), self.height_spin.value())
         self.visualization_3d.update_visualization(placements, space_dims)
         
-        # Update 2D visualization with warehouse map
+        # Update 2D visualization with warehouse map and pathfinding
         self.visualization_2d.generate_warehouse_map(20, 25)
-        self.visualization_2d.draw_warehouse(title="Warehouse Layout - Optimization Complete")
+        self.visualization_2d.set_start_position((1, 1))  # Default start position
+        
+        # Generate targets based on box placements
+        targets = self.generate_targets_from_placements(placements)
+        self.visualization_2d.set_targets(targets)
+        
+        self.visualization_2d.draw_warehouse(
+            start=(1, 1),
+            targets=targets,
+            path=self.visualization_2d.current_path,
+            title=f"Warehouse Layout - {len(targets)} targets from box placements"
+        )
+        
+        # Update route info
+        self.update_route_info()
+        
+        # Switch to pathfinding tab to show the route
+        self.control_tabs.setCurrentIndex(1)  # Switch to pathfinding tab
         
         # Update results text
         results = f"""Optimization Complete!
@@ -491,6 +607,100 @@ Placement details:
         """Save picklist to file"""
         # Implementation for saving picklist to file
         pass
+    
+    def set_start_position(self):
+        """Set the start position for pathfinding"""
+        row = self.start_row_spin.value()
+        col = self.start_col_spin.value()
+        
+        # Check if position is valid (on aisle)
+        if self.visualization_2d.warehouse_map and self.visualization_2d.warehouse_map[row][col] == 0:
+            self.visualization_2d.set_start_position((row, col))
+            self.update_route_info()
+            QMessageBox.information(self, "Start Position Set", f"Start position set to ({row}, {col})")
+        else:
+            QMessageBox.warning(self, "Invalid Position", "Start position must be on an aisle (not on a shelf)")
+    
+    def add_random_target(self):
+        """Add a random target position"""
+        if not self.visualization_2d.warehouse_map:
+            QMessageBox.warning(self, "Error", "Please generate warehouse map first")
+            return
+        
+        # Find a random aisle position
+        import random
+        attempts = 0
+        while attempts < 100:
+            row = random.randint(0, self.visualization_2d.rows - 1)
+            col = random.randint(0, self.visualization_2d.cols - 1)
+            
+            if (self.visualization_2d.warehouse_map[row][col] == 0 and 
+                (row, col) != self.visualization_2d.start_pos and
+                (row, col) not in self.visualization_2d.targets):
+                self.visualization_2d.add_target_interactive((row, col))
+                self.update_route_info()
+                return
+            
+            attempts += 1
+        
+        QMessageBox.warning(self, "No Valid Position", "Could not find a valid target position")
+    
+    def clear_all_targets(self):
+        """Clear all targets"""
+        self.visualization_2d.clear_targets()
+        self.update_route_info()
+    
+    def calculate_route(self):
+        """Calculate the optimal route"""
+        if not self.visualization_2d.start_pos:
+            QMessageBox.warning(self, "No Start Position", "Please set a start position first")
+            return
+        
+        if not self.visualization_2d.targets:
+            QMessageBox.warning(self, "No Targets", "Please add some targets first")
+            return
+        
+        self.visualization_2d.calculate_optimal_route()
+        self.update_route_info()
+        
+        # Switch to visualization tab to show the route
+        self.viz_tabs.setCurrentIndex(1)  # Switch to 2D Path tab
+    
+    def update_route_info(self):
+        """Update the route information display"""
+        route_info = self.visualization_2d.get_route_info()
+        
+        info_text = f"""Route Information:
+Steps: {route_info['steps']}
+Targets: {route_info['targets_visited']}
+Efficiency: {route_info['efficiency']:.2%}
+
+Start: {self.visualization_2d.start_pos if self.visualization_2d.start_pos else 'Not set'}
+Targets: {len(self.visualization_2d.targets)}
+"""
+        
+        self.route_info_text.setPlainText(info_text)
+    
+    def generate_targets_from_placements(self, placements: List[Box]) -> List[Tuple[int, int]]:
+        """Generate target positions based on box placements for pathfinding"""
+        targets = []
+        
+        if not placements:
+            return targets
+        
+        # Scale 3D placements to 2D warehouse grid
+        # Map 3D coordinates to 2D grid coordinates
+        for box in placements:
+            # Convert 3D coordinates to 2D grid coordinates
+            # Scale down to fit in 20x25 grid
+            grid_row = min(19, max(0, int(box.y * 19 / 50)))  # Scale y to rows
+            grid_col = min(24, max(0, int(box.x * 24 / 50)))  # Scale x to cols
+            
+            # Ensure target is on an aisle (not on shelf)
+            if (grid_row, grid_col) not in targets:
+                targets.append((grid_row, grid_col))
+        
+        return targets
     
     def show_about(self):
         """Show about dialog"""
