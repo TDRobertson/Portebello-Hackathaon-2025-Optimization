@@ -4,6 +4,7 @@ import random
 from typing import List, Tuple, Optional
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+import math
 
 
 class Box:
@@ -33,50 +34,82 @@ class Space:
                            w: int, d: int, h: int,
                            max_attempts: int
                            ) -> Optional[Box]:
-        for _ in range(max_attempts):
-            x = random.randint(0, self.width  - w)
-            y = random.randint(0, self.depth  - d)
-
-            # find resting height
+        """
+        Try up to max_attempts to place a box of size (w,d,h):
+         1) pick random (x,y)
+         2) let it fall to z_floor = max(0, tops of overlapping footprints)
+         3) ensure z_floor+h <= height
+         4) ensure no 3D overlap
+         5) ensure full‐footprint support (no overhang)
+        On success, appends the Box and returns it; otherwise returns None.
+        """
+        distances = []
+        cur_candidate = 0
+        if self.boxes == []:
+            x, y = 0, 0
             z_floor = 0
-            for e in self.boxes:
-                if not (x + w <= e.x or e.x + e.w <= x or
-                        y + d <= e.y or e.y + e.d <= y):
-                    z_floor = max(z_floor, e.z + e.h)
-
-            # ceiling check
-            if z_floor + h > self.height:
-                continue
 
             candidate = Box(x, y, z_floor, w, d, h)
 
-            # 3D overlap?
-            if any(candidate.overlaps(e) for e in self.boxes):
-                continue
+            if z_floor + h <= self.height:
+                self.boxes.append(candidate)
+                return candidate
+            else: return None
 
-            # full‐footprint support
-            if z_floor > 0:
-                supported = True
-                for xi in range(x, x + w):
-                    for yi in range(y, y + d):
-                        if not any(
-                            e.z + e.h == z_floor
-                            and e.x <= xi < e.x + e.w
-                            and e.y <= yi < e.y + e.d
-                            for e in self.boxes
-                        ):
-                            supported = False
-                            break
-                    if not supported:
-                        break
-                if not supported:
-                    continue
+        else:
+            for b in self.boxes:
+                for x, y in [(b.x+b.w, b.y), (b.x, b.y+b.d), (b.x+b.w, b.y+b.d)]:
+                    # find resting height
+                    z_floor = 0
+                    for e in self.boxes:
+                        if not (x + w <= e.x or e.x + e.w <= x or
+                                y + d <= e.y or e.y + e.d <= y):
+                            z_floor = max(z_floor, e.z + e.h)
+
+                    # too tall?
+                    if z_floor + h > self.height:
+                        continue
+
+                    candidate = Box(x, y, z_floor, w, d, h)
+
+                    # 3D overlap?
+                    if any(candidate.overlaps(e) for e in self.boxes):
+                        continue
+
+                    # full‐footprint support
+                    if z_floor > 0:
+                        supported = True
+                        for xi in range(x, x + w):
+                            for yi in range(y, y + d):
+                                # must find a box whose top == z_floor covering (xi,yi)
+                                if not any(
+                                    e.z + e.h == z_floor
+                                    and e.x <= xi < e.x + e.w
+                                    and e.y <= yi < e.y + e.d
+                                    for e in self.boxes
+                                ):
+                                    supported = False
+                                    break
+                            if not supported:
+                                break
+                        if not supported:
+                            continue
+                    if x + w > self.width or y + d > self.depth: continue
+                    
+                    dist = math.dist([0,0], [x,y])
+                    if distances == [] or dist < min(distances): 
+                        cur_candidate = candidate
+                        distances.append(dist)
 
             # place it
-            self.boxes.append(candidate)
-            return candidate
+            if distances == []:
+                return None
+            else:   
+                self.boxes.append(cur_candidate)
+                return cur_candidate
 
         return None
+
 
 
 def load_dims_from_csv(path: str) -> List[Tuple[int, int, int]]:
