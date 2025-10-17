@@ -1,7 +1,18 @@
+"""
+warehouse_auto_targets_weighted.py
+
+Same polished Pygame UI, now with:
+- Random weights assigned to each location
+- Weighted item display on HUD
+- Optimal path found using greedy A* search
+"""
+
 import pygame
 import heapq
 import math
 import sys
+import random
+from collections import deque
 
 pygame.init()
 
@@ -11,18 +22,18 @@ CELL_SIZE = 30
 WIDTH, HEIGHT = COLS * CELL_SIZE, ROWS * CELL_SIZE + 36  # extra for HUD
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Warehouse Path Optimization — Polished UI")
+pygame.display.set_caption("Warehouse Path Optimization — Weighted")
 
-# --- COLORS (softer theme) ---
-BG = (240, 248, 255)         # background
-AISLE = (225, 232, 240)      # aisle cell
-SHELF = (70, 75, 90)         # shelf cell (dark)
+# --- COLORS (same soft theme) ---
+BG = (240, 248, 255)
+AISLE = (225, 232, 240)
+SHELF = (70, 75, 90)
 SHELF_SHADOW = (40, 42, 50)
 GRID_LINE = (245, 248, 252)
-EXPLORED = (255, 247, 210)   # visited
-FRONTIER = (200, 170, 255)   # open set
-PATH = (255, 235, 160)       # final path
-AGENT = (235, 90, 90)        # agent circle
+EXPLORED = (255, 247, 210)
+FRONTIER = (200, 170, 255)
+PATH = (255, 235, 160)
+AGENT = (235, 90, 90)
 START_COLOR = (120, 230, 150)
 TARGET_COLOR = (110, 160, 255)
 HUD_BAR = (250, 250, 250)
@@ -34,8 +45,6 @@ FONT = pygame.font.SysFont("Segoe UI", 18) if pygame.font.get_init() else pygame
 
 # --- MAP GENERATION ---
 warehouse_map = [[0 for _ in range(COLS)] for _ in range(ROWS)]
-
-# Create shelves (1) and aisles (0) with spacing pattern (same as original logic)
 for r in range(2, ROWS - 2):
     if r % 4 == 0:
         continue
@@ -44,10 +53,6 @@ for r in range(2, ROWS - 2):
             warehouse_map[r][c] = 1
 
 # --- UTILITIES ---
-def in_bounds(cell):
-    r, c = cell
-    return 0 <= r < ROWS and 0 <= c < COLS
-
 def neighbors(cell):
     r, c = cell
     for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
@@ -55,299 +60,215 @@ def neighbors(cell):
         if 0 <= nr < ROWS and 0 <= nc < COLS:
             yield (nr, nc)
 
-def draw_rounded_rect(surface, color, rect, radius=6):
-    pygame.draw.rect(surface, color, rect, border_radius=radius)
+def find_nearest_free(start_cell):
+    if warehouse_map[start_cell[0]][start_cell[1]] == 0:
+        return start_cell
+    visited = {start_cell}
+    dq = deque([start_cell])
+    while dq:
+        cell = dq.popleft()
+        for nb in neighbors(cell):
+            if nb in visited:
+                continue
+            visited.add(nb)
+            r, c = nb
+            if warehouse_map[r][c] == 0:
+                return nb
+            dq.append(nb)
+    return (1, 1)
 
-# --- DRAW FUNCTION ---
-def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=None, closed=None, openset=None, msg=""):
-    # background
+# --- DRAW FUNCTION (unchanged visuals) ---
+def draw_map(agent_pixel=None, agent_cell=None, start=None, targets=None, path=None,
+              closed=None, openset=None, msg="", show_codes=None):
     screen.fill(BG)
-
-    # grid area
     grid_surface = pygame.Surface((COLS * CELL_SIZE, ROWS * CELL_SIZE), pygame.SRCALPHA)
+
     for r in range(ROWS):
         for c in range(COLS):
             x, y = c * CELL_SIZE, r * CELL_SIZE
             rect = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
-
             if warehouse_map[r][c] == 1:
-                # shelf with shadow and slight gradient look
-                shadow_rect = rect.copy()
-                shadow_rect.x += 2
-                shadow_rect.y += 2
+                shadow_rect = rect.copy(); shadow_rect.x += 2; shadow_rect.y += 2
                 pygame.draw.rect(grid_surface, SHELF_SHADOW, shadow_rect, border_radius=5)
                 pygame.draw.rect(grid_surface, SHELF, rect, border_radius=5)
             else:
                 pygame.draw.rect(grid_surface, AISLE, rect, border_radius=5)
-
-            # subtle grid lines
             pygame.draw.rect(grid_surface, GRID_LINE, rect, 1, border_radius=5)
 
-    # draw explored (closed) set
     if closed:
         for (r, c) in closed:
             pygame.draw.rect(grid_surface, EXPLORED, (c*CELL_SIZE+2, r*CELL_SIZE+2, CELL_SIZE-4, CELL_SIZE-4), border_radius=4)
-
-    # draw frontier (open set)
     if openset:
         for (r, c) in openset:
             pygame.draw.rect(grid_surface, FRONTIER, (c*CELL_SIZE+4, r*CELL_SIZE+4, CELL_SIZE-8, CELL_SIZE-8), border_radius=4)
-
-    # draw path (highlight)
     if path:
         for (r, c) in path:
             pygame.draw.rect(grid_surface, PATH, (c*CELL_SIZE+3, r*CELL_SIZE+3, CELL_SIZE-6, CELL_SIZE-6), border_radius=5)
-
-    # draw start and targets
     if targets:
         for (r, c) in targets:
             pygame.draw.rect(grid_surface, TARGET_COLOR, (c*CELL_SIZE+5, r*CELL_SIZE+5, CELL_SIZE-10, CELL_SIZE-10), border_radius=5)
     if start:
         pygame.draw.rect(grid_surface, START_COLOR, (start[1]*CELL_SIZE+4, start[0]*CELL_SIZE+4, CELL_SIZE-8, CELL_SIZE-8), border_radius=5)
 
-    # blit the prepared grid onto screen (keeps layers tidy)
     screen.blit(grid_surface, (0, 36))
 
-    # draw agent as circle (pixel position preferred for smooth interpolation)
+    # agent
     if agent_pixel:
         ax, ay = agent_pixel
         pygame.draw.circle(screen, AGENT, (int(ax), int(ay)), CELL_SIZE//3)
-        # small glow
-        glow = pygame.Surface((CELL_SIZE, CELL_SIZE), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (AGENT[0], AGENT[1], AGENT[2], 50), (CELL_SIZE//2, CELL_SIZE//2), CELL_SIZE//2)
-        screen.blit(glow, (int(ax - CELL_SIZE//2), int(ay - CELL_SIZE//2)), special_flags=pygame.BLEND_RGBA_ADD)
     elif agent_cell:
-        # fallback to grid-aligned agent
         r, c = agent_cell
         cx = c * CELL_SIZE + CELL_SIZE // 2
         cy = r * CELL_SIZE + CELL_SIZE // 2 + 36
         pygame.draw.circle(screen, AGENT, (cx, cy), CELL_SIZE//3)
 
-    # HUD (top bar)
+    # HUD
     pygame.draw.rect(screen, HUD_BAR, (0, 0, WIDTH, 36))
     pygame.draw.line(screen, HUD_LINE, (0, 36), (WIDTH, 36))
-    text = FONT.render(msg, True, TEXT_COLOR)
-    screen.blit(text, (10, 8))
+    screen.blit(FONT.render(msg, True, TEXT_COLOR), (10, 8))
 
-    # footer summary (targets count)
-    if targets:
-        footer = FONT.render(f"Targets: {len(targets)}  |  Press ESC to quit", True, TEXT_COLOR)
-        screen.blit(footer, (WIDTH - 260, 8))
+    if show_codes:
+        # now includes weights
+        codes_display = " | ".join([f"{code} ({w:.1f}kg)" for code, w in show_codes])
+        if len(codes_display) > 85:
+            codes_display = codes_display[:82] + "..."
+        screen.blit(FONT.render(codes_display, True, TEXT_COLOR), (10, 40))
 
     pygame.display.flip()
 
-# --- HEURISTIC ---
+# --- PATHFINDING ---
 def heuristic(a, b):
-    return abs(a[0] - b[0]) + abs(a[1] - b[1])
+    return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
-# --- A* WITH VISUALIZATION ---
 def a_star_visualized(start, goal, visualize=True, speed_wait=6):
     open_heap = []
     heapq.heappush(open_heap, (0, start))
     came_from = {}
-    g_score = {start: 0}
-    f_score = {start: heuristic(start, goal)}
-    closed_set = set()
-    open_set = {start}
+    g = {start: 0}
+    f = {start: heuristic(start, goal)}
+    closed, open_set = set(), {start}
 
     while open_heap:
-        # handle events so window remains responsive
         for ev in pygame.event.get():
-            if ev.type == pygame.QUIT:
-                pygame.quit(); sys.exit()
-            if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
+            if ev.type == pygame.QUIT or (ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE):
                 pygame.quit(); sys.exit()
 
-        _, current = heapq.heappop(open_heap)
-        open_set.discard(current)
+        _, cur = heapq.heappop(open_heap)
+        if cur in closed: continue
+        closed.add(cur)
 
-        if current in closed_set:
-            continue
-        closed_set.add(current)
-
-        # visualize current frontier & closed
         if visualize:
-            # create a list of open nodes for drawing
-            open_list = list(open_set)
-            draw_map(
-                agent_pixel=None,
-                agent_cell=None,
-                start=start,
-                targets=[goal],
-                path=None,
-                closed=closed_set,
-                openset=open_list,
-                msg="🔍 Searching — A* expanding..."
-            )
+            draw_map(start=start, targets=[goal], closed=closed, openset=open_set, msg="🔍 Searching path...")
             pygame.time.delay(speed_wait)
 
-        if current == goal:
-            # reconstruct path
+        if cur == goal:
             path = [goal]
             while path[-1] in came_from:
                 path.append(came_from[path[-1]])
             path.reverse()
-            # return excluding start? keep full path from start to goal
             return path
 
-        for nb in neighbors(current):
-            nr, nc = nb
-            if warehouse_map[nr][nc] == 1:
-                continue
-            tentative = g_score[current] + 1
-            if tentative < g_score.get(nb, float('inf')):
-                came_from[nb] = current
-                g_score[nb] = tentative
-                f = tentative + heuristic(nb, goal)
-                f_score[nb] = f
-                if nb not in open_set:
-                    heapq.heappush(open_heap, (f, nb))
-                    open_set.add(nb)
-
+        for nb in neighbors(cur):
+            r, c = nb
+            if warehouse_map[r][c] == 1: continue
+            t = g[cur] + 1
+            if t < g.get(nb, float('inf')):
+                came_from[nb] = cur
+                g[nb] = t
+                f[nb] = t + heuristic(nb, goal)
+                heapq.heappush(open_heap, (f[nb], nb))
+                open_set.add(nb)
     return []
 
-# --- TARGET SELECTION (mouse) ---
-def select_targets(start):
-    targets = []
-    selecting = True
-    draw_map(agent_cell=None, start=start, targets=targets, msg="🖱 Click free cells to add targets, press ENTER when done")
-    while selecting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit(); sys.exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:
-                    selecting = False
-                elif event.key == pygame.K_ESCAPE:
-                    pygame.quit(); sys.exit()
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mx, my = event.pos
-                # ignore clicks on HUD
-                if my < 36:
-                    continue
-                col = mx // CELL_SIZE
-                row = (my - 36) // CELL_SIZE
-                if in_bounds((row, col)) and warehouse_map[row][col] == 0:
-                    if (row, col) not in targets and (row, col) != start:
-                        targets.append((row, col))
-                    elif (row, col) in targets:
-                        targets.remove((row, col))
+# --- LOCATION & WEIGHT GENERATION ---
+def generate_weighted_locations(n=6):
+    items = []
+    for _ in range(n):
+        code = f"B{random.randint(1,9)}.J{random.randint(1,4)}.{random.randint(1,99):02}.{random.randint(1,5):02}"
+        weight = random.uniform(5, 100)
+        items.append((code, weight))
+    items.sort(key=lambda x: x[1], reverse=True)  # sort by weight descending
+    return items
 
-        draw_map(agent_cell=None, start=start, targets=targets, msg="🖱 Click free cells to add targets, press ENTER when done")
-        clock.tick(60)
-    return targets
+def location_to_grid(loc):
+    parts = loc.split(".")
+    b = int(parts[0][1:]); j = int(parts[1][1:]); s = int(parts[2]); f = int(parts[3])
+    row = 2 + (j - 1) * 4 + (s % 3)
+    col = 2 + (b - 1) * 2 + (f % 3)
+    row, col = min(max(row,0),ROWS-1), min(max(col,0),COLS-1)
+    if warehouse_map[row][col] == 1:
+        row, col = find_nearest_free((row, col))
+    return (row, col)
 
-# --- SIMPLE GREEDY ORDERING (using A* distances, quiet) ---
+# --- ORDERING FUNCTION (use A* greedy same as before) ---
 def find_best_order(targets, start):
     remaining = targets[:]
     order = []
     current = start
     while remaining:
-        best_target = None
-        best_dist = float('inf')
-        for t in list(remaining):
+        best_target, best_dist = None, float('inf')
+        for t in remaining:
             path = a_star_visualized(current, t, visualize=False)
             if path and len(path) < best_dist:
-                best_dist = len(path)
-                best_target = t
-        if best_target is None:
+                best_target, best_dist = t, len(path)
+        if best_target:
+            order.append(best_target)
+            remaining.remove(best_target)
+            current = best_target
+        else:
             break
-        order.append(best_target)
-        remaining.remove(best_target)
-        current = best_target
     return order
 
-# --- FADE IN TRANSITION ---
-def fade_in(duration_ms=400):
-    overlay = pygame.Surface((WIDTH, HEIGHT))
-    overlay.fill((0,0,0))
-    steps = 16
-    wait = max(1, duration_ms // steps)
-    for i in range(steps + 1):
-        alpha = int(255 * (1 - i / steps))
-        overlay.set_alpha(alpha)
-        draw_map(msg="Welcome — select targets", agent_cell=None, start=(1,1), targets=[], path=None, closed=None, openset=None)
-        screen.blit(overlay, (0, 0))
-        pygame.display.flip()
-        pygame.time.delay(wait)
-
-# --- SMOOTH ANIMATION: agent moves pixel-by-pixel, handles quit events ---
+# --- ANIMATION ---
 def animate_path(full_path, start, targets, per_cell_frames=12):
     if not full_path:
         return
-    # agent start pixel (center)
-    agent_x = start[1] * CELL_SIZE + CELL_SIZE // 2
-    agent_y = start[0] * CELL_SIZE + CELL_SIZE // 2 + 36  # account for HUD offset
-
-    # draw final combined path highlight as background as we move
-    for idx, cell in enumerate(full_path):
-        target_r, target_c = cell
-        tx = target_c * CELL_SIZE + CELL_SIZE // 2
-        ty = target_r * CELL_SIZE + CELL_SIZE // 2 + 36
-
-        # interpolate with easing for nice motion
-        for frame in range(per_cell_frames):
-            t = (frame + 1) / per_cell_frames
-            # ease in-out (smooth)
-            t_ease = -(math.cos(math.pi * t) - 1) / 2
-            cur_x = agent_x + (tx - agent_x) * t_ease
-            cur_y = agent_y + (ty - agent_y) * t_ease
-
-            # event handling
-            for ev in pygame.event.get():
-                if ev.type == pygame.QUIT:
-                    pygame.quit(); sys.exit()
-                if ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
-                    pygame.quit(); sys.exit()
-
-            draw_map(agent_pixel=(cur_x, cur_y), start=start, targets=targets, path=full_path, closed=None, openset=None,
-                     msg="🤖 Moving along optimal route...")
+    agent_x = start[1]*CELL_SIZE + CELL_SIZE//2
+    agent_y = start[0]*CELL_SIZE + CELL_SIZE//2 + 36
+    for cell in full_path:
+        tx = cell[1]*CELL_SIZE + CELL_SIZE//2
+        ty = cell[0]*CELL_SIZE + CELL_SIZE//2 + 36
+        for f in range(per_cell_frames):
+            t = (f+1)/per_cell_frames
+            t_ease = -(math.cos(math.pi*t)-1)/2
+            cx = agent_x + (tx-agent_x)*t_ease
+            cy = agent_y + (ty-agent_y)*t_ease
+            draw_map(agent_pixel=(cx,cy), start=start, targets=targets, path=full_path, msg="🤖 Moving along optimal route...")
             clock.tick(60)
-
         agent_x, agent_y = tx, ty
-
-    # final state
-    draw_map(agent_pixel=(agent_x, agent_y), start=start, targets=targets, path=full_path, closed=None, openset=None,
-             msg="✅ Path complete!")
-    pygame.time.delay(1000)
+    draw_map(agent_pixel=(agent_x, agent_y), start=start, targets=targets, path=full_path, msg="✅ Path complete!")
+    pygame.time.delay(800)
 
 # --- MAIN ---
 def main():
     start = (1, 1)
-    fade_in(450)
 
-    draw_map(agent_cell=None, start=start, targets=[], msg="🖱 Click to select targets, press ENTER to start")
-    targets = select_targets(start)
+    # weighted codes
+    items = generate_weighted_locations(6)
+    codes = [code for code, _ in items]
+    targets = [location_to_grid(code) for code in codes]
 
-    if not targets:
-        print("No targets selected.")
-        return
+    draw_map(start=start, targets=targets, msg="📦 Weighted targets loaded — computing optimal path...", show_codes=items)
+    pygame.time.delay(700)
 
-    # order targets with greedy heuristic (quiet)
-    draw_map(msg="🔢 Computing visit order...", start=start, targets=targets)
+    # compute optimal path (greedy)
     best_order = find_best_order(targets, start)
 
-    # compute full path by concatenating A* segments with visualization for each segment
+    # full path
     full_path = []
     current = start
-    for idx, target in enumerate(best_order):
-        # visualize A* search for this segment (slower, visible)
-        segment = a_star_visualized(current, target, visualize=True, speed_wait=6)
-        if not segment:
-            print("A segment was unreachable:", target)
-            continue
-        # if the segment starts with current, skip duplicated first step to avoid repeating cell
-        if full_path and segment and segment[0] == full_path[-1]:
-            full_path.extend(segment[1:])
-        else:
-            full_path.extend(segment)
-        current = target
+    for t in best_order:
+        seg = a_star_visualized(current, t, visualize=True, speed_wait=6)
+        if seg:
+            if full_path and seg[0] == full_path[-1]:
+                full_path.extend(seg[1:])
+            else:
+                full_path.extend(seg)
+            current = t
 
-    # animate the agent along the resulting full path
     animate_path(full_path, start, best_order)
-
-    # finished — wait a bit and exit gracefully
-    pygame.time.delay(400)
+    draw_map(start=start, targets=best_order, path=full_path, msg="✅ Weighted route complete!", show_codes=items)
+    pygame.time.delay(1400)
     pygame.quit()
 
 if __name__ == "__main__":
