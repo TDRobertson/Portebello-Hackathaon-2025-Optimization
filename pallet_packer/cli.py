@@ -8,7 +8,8 @@ import typer
 from rich import print
 from .models import InputSpec
 from .heuristics import pack
-from .visualize import render
+from .visualize import render, render_interactive
+from .plotly_viz import render_plotly_interactive, render_plotly_static
 
 
 app = typer.Typer(add_completion=False)
@@ -18,6 +19,8 @@ app = typer.Typer(add_completion=False)
 def main(
     input: Path = typer.Argument(..., exists=True, readable=True, help="Path to input JSON"),
     out: Path = typer.Argument(Path("out"), help="Output directory"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Show interactive 3D visualization"),
+    plotly: bool = typer.Option(False, "--plotly", "-p", help="Use Plotly for better 3D visualization"),
 ):
     out.mkdir(parents=True, exist_ok=True)
     spec = InputSpec.model_validate_json(input.read_text())
@@ -51,7 +54,10 @@ def main(
 
     # Visualization
     viz_path = out / "visualization.png"
-    render(spec.pallet, result.placements, str(viz_path))
+    if plotly:
+        render_plotly_static(spec.pallet, result.placements, str(viz_path))
+    else:
+        render(spec.pallet, result.placements, str(viz_path))
 
     # Summary
     summary = out / "summary.txt"
@@ -71,6 +77,15 @@ def main(
         )
 
     print(f"[green]Wrote outputs to[/green] {out}")
+    
+    # Show interactive visualization if requested
+    if interactive:
+        if plotly:
+            print("[blue]Opening Plotly interactive 3D visualization...[/blue]")
+            render_plotly_interactive(spec.pallet, result.placements)
+        else:
+            print("[blue]Opening matplotlib interactive 3D visualization...[/blue]")
+            render_interactive(spec.pallet, result.placements)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,21 @@
 {
-  "pallet": { "length": 1000, "width": 1000, "height_limit": 1000 },
+  "pallet": { "length": 1200, "width": 1000, "height_limit": 1500 },
   "boxes": [
-    { "id": "SKU-A", "length": 400, "width": 300, "height": 200, "quantity": 8, "label_side": "+y" },
-    { "id": "SKU-B", "length": 500, "width": 400, "height": 300, "quantity": 4, "label_side": "+x" },
-    { "id": "SKU-C", "length": 300, "width": 300, "height": 150, "quantity": 12 },
-    { "id": "SKU-D", "length": 600, "width": 350, "height": 250, "quantity": 5, "label_side": "-y" },
-    { "id": "SKU-E", "length": 250, "width": 250, "height": 200, "quantity": 16, "label_side": "+z" },
-    { "id": "SKU-F", "length": 700, "width": 450, "height": 180, "quantity": 3, "label_side": "-x" },
-    { "id": "SKU-G", "length": 200, "width": 150, "height": 150, "quantity": 24 },
-    { "id": "SKU-H", "length": 500, "width": 500, "height": 400, "quantity": 2, "label_side": "+y" },
-    { "id": "SKU-I", "length": 450, "width": 300, "height": 220, "quantity": 6 },
-    { "id": "SKU-J", "length": 350, "width": 280, "height": 160, "quantity": 10, "label_side": "-z" }
+    { "id": "BOX-001", "length": 320, "width": 240, "height": 180, "quantity": 15, "label_side": "+y" },
+    { "id": "BOX-002", "length": 480, "width": 360, "height": 280, "quantity": 8, "label_side": "+x" },
+    { "id": "BOX-003", "length": 280, "width": 280, "height": 120, "quantity": 20 },
+    { "id": "BOX-004", "length": 650, "width": 420, "height": 200, "quantity": 6, "label_side": "-y" },
+    { "id": "BOX-005", "length": 220, "width": 180, "height": 160, "quantity": 25, "label_side": "+z" },
+    { "id": "BOX-006", "length": 580, "width": 380, "height": 140, "quantity": 4, "label_side": "-x" },
+    { "id": "BOX-007", "length": 180, "width": 140, "height": 100, "quantity": 30 },
+    { "id": "BOX-008", "length": 420, "width": 420, "height": 350, "quantity": 3, "label_side": "+y" },
+    { "id": "BOX-009", "length": 380, "width": 260, "height": 190, "quantity": 12 },
+    { "id": "BOX-010", "length": 300, "width": 220, "height": 140, "quantity": 18, "label_side": "-z" },
+    { "id": "BOX-011", "length": 520, "width": 340, "height": 160, "quantity": 7, "label_side": "+x" },
+    { "id": "BOX-012", "length": 240, "width": 200, "height": 200, "quantity": 22 },
+    { "id": "BOX-013", "length": 680, "width": 460, "height": 120, "quantity": 2, "label_side": "-y" },
+    { "id": "BOX-014", "length": 160, "width": 120, "height": 80, "quantity": 35 },
+    { "id": "BOX-015", "length": 440, "width": 320, "height": 240, "quantity": 9, "label_side": "+z" }
   ]
 }
 
